@@ -1,0 +1,95 @@
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+
+const Rates = () => {
+  const [rate2x2, setRate2x2] = useState("");
+  const [rate4x4, setRate4x4] = useState("");
+
+  // Fetch existing rates
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const res = await axios.get("/api/rates", {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          }
+        });
+
+        if (res.data) {
+          setRate2x2(res.data.rate_2x2 || "");
+          setRate4x4(res.data.rate_4x4 || "");
+        }
+      } catch (err) {
+        console.error("Error fetching rates:", err);
+      }
+    };
+
+    fetchRates();
+  }, []);
+
+  // Save rates
+  const handleSave = async () => {
+    try {
+      await axios.post(
+        "/api/rates",
+        { 
+         rate_2x2: rate2x2,
+         rate_4x4: rate4x4
+        },
+        {
+          headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`
+         }
+       }
+     );
+
+     alert("Rates saved successfully ✅");
+
+  }  catch (err) {
+     console.error("FULL ERROR:", err);
+     console.log("RESPONSE:", err.response);
+
+     alert(err.response?.data?.message || "Save failed ❌");
+  }
+};
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-green-700 mb-4">
+        Rates Management
+      </h1>
+
+      <div className="bg-white p-6 rounded-xl shadow">
+        <div className="space-y-4">
+          <div>
+            <label className="block font-medium">2x2 Rate (₹/hr)</label>
+            <input
+              type="number"
+              value={rate2x2}
+              onChange={(e) => setRate2x2(e.target.value)}
+              className="w-full mt-1 p-2 border rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label className="block font-medium">4x4 Rate (₹/hr)</label>
+            <input
+              type="number"
+              value={rate4x4}
+              onChange={(e) => setRate4x4(e.target.value)}
+              className="w-full mt-1 p-2 border rounded-lg"
+            />
+          </div>
+
+          <button
+            onClick={handleSave}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg"
+          >
+            Save Rates
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Rates;

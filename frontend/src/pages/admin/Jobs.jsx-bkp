@@ -1,0 +1,223 @@
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { format } from "date-fns";
+import { Loader2, Edit, Trash2, DownloadCloud } from "lucide-react";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+
+const Jobs = () => {
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingJob, setEditingJob] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const token = localStorage.getItem("token");
+
+  // FETCH
+  const fetchJobs = async () => {
+    try {
+      const { data } = await axios.get("/api/jobs", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setJobs(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchJobs();
+  }, []);
+
+  // DELETE
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete job?")) return;
+
+    await axios.delete(`/api/jobs/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    fetchJobs();
+  };
+
+  // UPDATE
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+
+    try {
+      await axios.put(`/api/jobs/${editingJob.id}`, editingJob, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setEditingJob(null);
+      fetchJobs();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setEditingJob((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // FULL PDF
+  const downloadReceipt = (job) => {
+    const doc = new jsPDF();
+
+    doc.setFontSize(18);
+    doc.text("Sri Lakshmi Chennakeshava Harvesters", 105, 15, { align: "center" });
+
+    doc.setFontSize(12);
+    doc.text("Work Receipt", 105, 22, { align: "center" });
+
+    doc.line(10, 26, 200, 26);
+
+    doc.text(`Date: ${format(new Date(job.date), "dd MMM yyyy")}`, 10, 35);
+    doc.text(`Farmer: ${job.farmer_name}`, 10, 42);
+    doc.text(`Location: ${job.location}`, 10, 49);
+    doc.text(`Crop: ${job.crop_type}`, 10, 56);
+
+    doc.text(`Driver: ${job.driver_name}`, 130, 35);
+    doc.text(`Harvester: ${job.harvester_id}`, 130, 42);
+    doc.text(`Mode: ${job.mode}`, 130, 49);
+    doc.text(
+      `Time: ${job.start_time?.slice(0, 5)} - ${job.end_time?.slice(0, 5)}`,
+      130,
+      56
+    );
+
+    const tableData = [
+      [
+        "Harvest Work",
+        `${job.total_hours} hrs`,
+        `₹${job.hourly_rate}/hr`,
+        `₹${job.work_amount}`,
+      ],
+    ];
+
+    if (job.tractor_trips > 0) {
+      tableData.push([
+        "Tractor Trips",
+        `${job.tractor_trips}`,
+        `₹${job.tractor_trip_rate}/trip`,
+        `₹${job.tractor_total}`,
+      ]);
+    }
+
+    autoTable({
+      startY: 65,
+      head: [["Description", "Qty", "Rate", "Amount"]],
+      body: tableData,
+    });
+
+    const y = doc.lastAutoTable.finalY + 10;
+
+    doc.text(`Total: ₹${job.total_amount}`, 130, y);
+    doc.text(`Paid: ₹${job.amount_paid}`, 130, y + 8);
+    doc.text(`Pending: ₹${job.pending_amount}`, 130, y + 16);
+
+    doc.save(`Receipt_${job.farmer_name}.pdf`);
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold">Jobs</h1>
+
+      {loading ? (
+        <Loader2 className="animate-spin" />
+      ) : (
+        <table className="w-full border">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Farmer</th>
+              <th>Amount</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {jobs.map((job) => (
+              <tr key={job.id}>
+                <td>{format(new Date(job.date), "dd MMM yyyy")}</td>
+                <td>{job.farmer_name}</td>
+                <td>₹{job.total_amount}</td>
+
+                <td className="flex gap-2">
+                  <button onClick={() => downloadReceipt(job)}>
+                    <DownloadCloud />
+                  </button>
+
+                  <button onClick={() => setEditingJob({ ...job })}>
+                    <Edit />
+                  </button>
+
+                  <button onClick={() => handleDelete(job.id)}>
+                    <Trash2 />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {/* EDIT MODAL */}
+      {editingJob && (
+        <div className="fixed inset-0 bg-black/40 flex justify-center items-center">
+          <div className="bg-white p-6 rounded w-full max-w-lg">
+            <h2 className="text-lg font-bold mb-4">Edit Job</h2>
+
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <input
+                name="farmer_name"
+                value={editingJob.farmer_name}
+                onChange={handleChange}
+                className="w-full border p-2"
+              />
+
+              <input
+                name="total_amount"
+                value={editingJob.total_amount}
+                onChange={handleChange}
+                className="w-full border p-2"
+              />
+
+              <input
+                name="amount_paid"
+                value={editingJob.amount_paid}
+                onChange={handleChange}
+                className="w-full border p-2"
+              />
+
+              <input
+                name="pending_amount"
+                value={editingJob.pending_amount}
+                onChange={handleChange}
+                className="w-full border p-2"
+              />
+
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setEditingJob(null)}>
+                  Cancel
+                </button>
+
+                <button type="submit">
+                  {saving ? "Saving..." : "Update"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Jobs;

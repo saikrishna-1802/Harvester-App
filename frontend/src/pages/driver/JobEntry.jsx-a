@@ -1,0 +1,377 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { LogOut, Save, Tractor, Loader2, PlusCircle, Trash2 } from 'lucide-react';
+import axios from 'axios';
+import { format, differenceInMinutes, parse } from 'date-fns';
+
+const emptyWork = () => ({ mode: '2x2', start_time: '', end_time: '' });
+
+const JobEntry = () => {
+  const { user, logout } = useAuth();
+
+  const [loading, setLoading] = useState(false);
+  const [rates, setRates] = useState([]);
+  const [message, setMessage] = useState({ type: '', text: '' });
+
+  const [formData, setFormData] = useState({
+    date: format(new Date(), 'yyyy-MM-dd'),
+    farmer_name: '',
+    location: '',
+    crop_type: 'Paddy',
+    harvester_id: 'Harvester 1',
+    tractor_trips: 0,
+    amount_paid: 0,
+    notes: ''
+  });
+
+  // Multiple work entries — each has mode, start_time, end_time
+  const [works, setWorks] = useState([emptyWork()]);
+
+  const [calcs, setCalcs] = useState({
+    total_hours: 0,
+    work_amount: 0,
+    tractor_trip_rate: 0,
+    tractor_total: 0,
+    total_amount: 0,
+    pending_amount: 0,
+    work_breakdown: []
+  });
+
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const res = await axios.get('/api/rates');
+        setRates(res.data);
+      } catch (err) {
+        console.error('Error fetching rates:', err);
+      }
+    };
+    fetchRates();
+  }, []);
+
+  useEffect(() => {
+    if (rates.length === 0) return;
+
+    const rateConfig = rates.find(r => r.harvester_id === formData.harvester_id);
+    if (!rateConfig) return;
+
+    let totalHrs = 0;
+    let totalWorkAmount = 0;
+    const breakdown = [];
+
+    works.forEach((work, idx) => {
+      if (!work.start_time || !work.end_time) {
+        breakdown.push({ idx, hours: 0, rate: 0, amount: 0 });
+        return;
+      }
+
+      const start = parse(work.start_time, 'HH:mm', new Date());
+      let end = parse(work.end_time, 'HH:mm', new Date());
+
+      if (end < start) {
+        end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+      }
+
+      const diffMins = differenceInMinutes(end, start);
+      const hrs = parseFloat((diffMins / 60).toFixed(2));
+      const rate = work.mode === '2x2' ? parseFloat(rateConfig.rate_2x2) : parseFloat(rateConfig.rate_4x4);
+      const amount = hrs * rate;
+
+      totalHrs += hrs;
+      totalWorkAmount += amount;
+      breakdown.push({ idx, hours: hrs, rate, amount });
+    });
+
+    totalHrs = parseFloat(totalHrs.toFixed(2));
+
+    const tractorRate = parseFloat(rateConfig.tractor_trip_rate);
+    const tractorTotal = (parseInt(formData.tractor_trips) || 0) * tractorRate;
+    const totalAmount = totalWorkAmount + tractorTotal;
+    const pendingAmount = totalAmount - (parseFloat(formData.amount_paid) || 0);
+
+    setCalcs({
+      total_hours: totalHrs,
+      work_amount: totalWorkAmount,
+      tractor_trip_rate: tractorRate,
+      tractor_total: tractorTotal,
+      total_amount: totalAmount,
+      pending_amount: pendingAmount,
+      work_breakdown: breakdown
+    });
+  }, [formData, works, rates]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Work entry handlers
+  const handleWorkChange = (index, field, value) => {
+    setWorks(prev => prev.map((w, i) => i === index ? { ...w, [field]: value } : w));
+  };
+
+  const addWork = () => setWorks(prev => [...prev, emptyWork()]);
+
+  const removeWork = (index) => {
+    if (works.length === 1) return; // keep at least one
+    setWorks(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (calcs.total_hours <= 0) {
+      setMessage({ type: 'error', text: 'Please enter valid start and end times for at least one work entry.' });
+      return;
+    }
+
+    setLoading(true);
+    setMessage({ type: '', text: '' });
+
+    try {
+      const payload = {
+        ...formData,
+        works,                                    // array of { mode, start_time, end_time }
+        ...calcs,
+        work_breakdown: calcs.work_breakdown,     // ensures backend can derive hourly_rate per entry
+      };
+      await axios.post('/api/jobs', payload);
+      setMessage({ type: 'success', text: 'Job entry submitted successfully!' });
+
+      setFormData(prev => ({
+        ...prev,
+        farmer_name: '',
+        location: '',
+        tractor_trips: 0,
+        amount_paid: 0,
+        notes: ''
+      }));
+      setWorks([emptyWork()]);
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to submit entry' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-harvester-bg bg-cover bg-center bg-fixed relative pb-20 text-gray-900 font-sans">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+
+      {/* Glass Header */}
+      <div className="glass-dark text-white px-5 py-4 flex justify-between items-center sticky top-0 z-20 shadow-2xl">
+        <div className="flex items-center space-x-3">
+          <div className="bg-primary-500/30 p-2 rounded-full backdrop-blur-md">
+            <Tractor className="h-6 w-6 text-white drop-shadow-md" />
+          </div>
+          <h1 className="text-xl font-extrabold tracking-wide drop-shadow-md">New Entry</h1>
+        </div>
+        <div className="flex items-center space-x-4">
+          <span className="text-sm font-semibold opacity-90 drop-shadow-sm">{user?.username}</span>
+          <button onClick={logout} className="p-2 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm">
+            <LogOut className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-md mx-auto relative z-10 px-4 mt-6 animate-fade-in-up">
+        {message.text && (
+          <div className={`p-4 mb-4 rounded-xl text-sm font-bold shadow-lg backdrop-blur-md border ${message.type === 'error' ? 'bg-red-500/20 text-red-100 border-red-500/50' : 'bg-green-500/20 text-green-100 border-green-500/50'}`}>
+            {message.text}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6 glass p-6 sm:p-8 rounded-3xl shadow-2xl">
+
+          {/* Date & Harvester */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wider">Date</label>
+              <input type="date" name="date" required value={formData.date} onChange={handleChange} className="w-full px-4 py-2.5 bg-white/60 focus:bg-white/90 border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wider">Harvester</label>
+              <select name="harvester_id" value={formData.harvester_id} onChange={handleChange} className="w-full px-4 py-2.5 bg-white/60 focus:bg-white/90 border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner">
+                {rates.map(r => <option key={r.harvester_id} value={r.harvester_id}>{r.harvester_id}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Farmer & Village */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wider">Farmer Name</label>
+              <input type="text" name="farmer_name" required value={formData.farmer_name} onChange={handleChange} placeholder="Enter farmer name" className="w-full px-4 py-2.5 bg-white/60 focus:bg-white/90 border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner placeholder-gray-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wider">Village</label>
+              <input type="text" name="location" required value={formData.location} onChange={handleChange} placeholder="Enter village name" className="w-full px-4 py-2.5 bg-white/60 focus:bg-white/90 border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner placeholder-gray-500" />
+            </div>
+          </div>
+
+          {/* Crop */}
+          <div>
+            <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wider">Crop</label>
+            <input type="text" name="crop_type" value={formData.crop_type} onChange={handleChange} className="w-full px-4 py-2.5 bg-white/60 focus:bg-white/90 border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner" />
+          </div>
+
+          {/* ── Multiple Work Entries ── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">Work Entries</label>
+              <button
+                type="button"
+                onClick={addWork}
+                className="flex items-center gap-1.5 text-xs font-bold text-primary-700 hover:text-primary-900 bg-primary-100/60 hover:bg-primary-200/80 px-3 py-1.5 rounded-lg transition-all border border-primary-200/60"
+              >
+                <PlusCircle className="h-3.5 w-3.5" />
+                Add Work
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {works.map((work, index) => {
+                const bd = calcs.work_breakdown[index];
+                return (
+                  <div key={index} className="bg-white/40 border border-white/60 rounded-2xl p-3 shadow-sm relative">
+                    {/* Remove button — only show if more than one */}
+                    {works.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeWork(index)}
+                        className="absolute top-2.5 right-2.5 text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+
+                    {/* Entry label */}
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                      Entry {index + 1}
+                    </p>
+
+                    {/* Mode */}
+                    <div className="mb-3">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Mode</label>
+                      <select
+                        value={work.mode}
+                        onChange={e => handleWorkChange(index, 'mode', e.target.value)}
+                        className="w-full px-3 py-2 bg-white/70 focus:bg-white border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner"
+                      >
+                        <option value="2x2">2x2 Mode</option>
+                        <option value="4x4">4x4 Mode</option>
+                      </select>
+                    </div>
+
+                    {/* Start & End Time */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Start Time</label>
+                        <input
+                          type="time"
+                          value={work.start_time}
+                          onChange={e => handleWorkChange(index, 'start_time', e.target.value)}
+                          className="w-full px-3 py-2 bg-white/70 focus:bg-white border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">End Time</label>
+                        <input
+                          type="time"
+                          value={work.end_time}
+                          onChange={e => handleWorkChange(index, 'end_time', e.target.value)}
+                          className="w-full px-3 py-2 bg-white/70 focus:bg-white border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Per-entry calc pill */}
+                    {bd && bd.hours > 0 && (
+                      <div className="mt-2.5 flex justify-between items-center bg-primary-50/70 border border-primary-200/40 rounded-lg px-3 py-1.5 text-xs font-semibold text-primary-800">
+                        <span>{bd.hours}h × ₹{bd.rate}/hr</span>
+                        <span className="font-bold text-primary-700">= ₹{bd.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Combined Work Amount Summary */}
+          <div className="bg-primary-50/60 backdrop-blur-md p-4 rounded-xl border border-primary-200/50 text-sm shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-primary-400/20 to-transparent rounded-bl-full"></div>
+            <div className="flex justify-between mb-2">
+              <span className="font-semibold text-primary-900">
+                Total Hours: <span className="font-bold text-primary-700 text-lg ml-1">{calcs.total_hours}h</span>
+              </span>
+              <span className="text-xs text-primary-700 font-medium self-end">
+                {works.length > 1 ? `${works.length} entries` : '1 entry'}
+              </span>
+            </div>
+            <div className="flex justify-between font-bold text-primary-900 items-end">
+              <span>Work Amount:</span>
+              <span className="text-xl">₹{calcs.work_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+
+          {/* Tractor Trips */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wider">Tractor Trips</label>
+              <input type="number" min="0" name="tractor_trips" value={formData.tractor_trips} onChange={handleChange} className="w-full px-4 py-2.5 bg-white/60 focus:bg-white/90 border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-semibold shadow-inner" />
+            </div>
+            <div className="flex flex-col justify-end pb-2">
+              <span className="text-xs font-bold text-gray-600 mb-1">Rate: ₹{calcs.tractor_trip_rate}</span>
+              <span className="text-sm font-bold text-gray-800 bg-white/40 px-3 py-1.5 rounded-lg border border-white/50 inline-block">
+                ₹{calcs.tractor_total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Total Bill + Payment */}
+          <div className="space-y-4 pt-4 border-t border-gray-200/50">
+            <div className="flex justify-between items-center bg-gradient-to-r from-primary-600 to-green-500 p-4 rounded-xl shadow-lg relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl transform translate-x-10 -translate-y-10"></div>
+              <span className="font-extrabold text-white tracking-wider">TOTAL BILL:</span>
+              <span className="text-2xl font-black text-white drop-shadow-md">₹{calcs.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            </div>
+
+            <div className="bg-white/40 p-4 rounded-xl border border-white/50 space-y-4 shadow-inner">
+              <div>
+                <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wider">Advance / Amount Paid</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-2.5 text-gray-800 font-bold">₹</span>
+                  <input type="number" min="0" step="any" required name="amount_paid" value={formData.amount_paid} onChange={handleChange} className="w-full pl-9 pr-4 py-2.5 bg-white/70 focus:bg-white border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-md font-bold text-gray-900 shadow-sm" />
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center bg-white/60 p-3 rounded-xl shadow-sm border border-white/50">
+                <span className="font-bold text-gray-700 uppercase text-xs tracking-wider">Pending Balance:</span>
+                <span className={`text-lg font-black drop-shadow-sm ${calcs.pending_amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  ₹{calcs.pending_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wider">Notes</label>
+              <textarea name="notes" rows="2" value={formData.notes} onChange={handleChange} className="w-full px-4 py-3 bg-white/60 focus:bg-white/90 border border-white/50 rounded-xl focus:ring-2 focus:ring-primary-500 transition-all text-sm font-medium shadow-inner placeholder-gray-500"></textarea>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || rates.length === 0}
+            className="w-full bg-gradient-to-r from-primary-600 to-green-500 hover:from-primary-700 hover:to-green-600 text-white font-extrabold py-4 px-4 rounded-xl shadow-xl hover:shadow-primary-500/40 flex items-center justify-center transition-all transform hover:-translate-y-1 disabled:opacity-70 disabled:hover:translate-y-0 mt-6 text-lg tracking-wide"
+          >
+            {loading ? <Loader2 className="animate-spin h-6 w-6 mr-3" /> : <Save className="h-6 w-6 mr-3 drop-shadow-md" />}
+            Confirm & Submit
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default JobEntry;

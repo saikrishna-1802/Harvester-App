@@ -1,0 +1,196 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { Users } from 'lucide-react';
+import {
+  TrendingUp, TrendingDown, Wallet, DollarSign,
+  Calendar as CalendarIcon, Loader2,
+  ClipboardList, Receipt, Settings, Gauge
+} from 'lucide-react';
+
+// Clickable stat card
+const StatCard = ({ title, amount, icon: Icon, colorClass, onClick }) => (
+  <div
+    onClick={onClick}
+    className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all"
+  >
+    <div>
+      <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
+      <h3 className="text-2xl font-bold text-gray-900">
+        ₹{Number(amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+      </h3>
+    </div>
+    <div className={`p-4 rounded-full ${colorClass}`}>
+      <Icon className="w-6 h-6" />
+    </div>
+  </div>
+);
+
+// Quick action card
+const ActionCard = ({ title, description, icon: Icon, colorClass, bgClass, onClick }) => (
+  <div
+    onClick={onClick}
+    className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex items-center gap-4 cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group"
+  >
+    <div className={`p-3 rounded-xl ${bgClass} group-hover:scale-110 transition-transform`}>
+      <Icon className={`w-6 h-6 ${colorClass}`} />
+    </div>
+    <div>
+      <p className="font-semibold text-gray-800">{title}</p>
+      <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+    </div>
+  </div>
+);
+
+const Dashboard = () => {
+  const navigate = useNavigate();
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [dateRange, setDateRange] = useState({
+    start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
+    end: format(endOfMonth(new Date()), 'yyyy-MM-dd')
+  });
+
+  const fetchSummary = async () => {
+    setLoading(true);
+    try {
+      const { data } = await axios.get('/api/dashboard/summary', {
+        params: { startDate: dateRange.start, endDate: dateRange.end }
+      });
+      setSummary(data);
+    } catch (err) {
+      console.error('Failed to fetch summary');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSummary();
+  }, [dateRange]);
+
+  const handleDateChange = (e) => {
+    setDateRange(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto">
+
+      {/* Header + Date Filter */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl font-bold text-gray-900">Insights Overview</h1>
+        <div className="flex items-center space-x-2 bg-white p-2 rounded-lg border border-gray-200 shadow-sm">
+          <CalendarIcon className="w-5 h-5 text-gray-400 ml-2" />
+          <input
+            type="date"
+            name="start"
+            value={dateRange.start}
+            onChange={handleDateChange}
+            className="text-sm border-none focus:ring-0 text-gray-600 bg-transparent"
+          />
+          <span className="text-gray-400">to</span>
+          <input
+            type="date"
+            name="end"
+            value={dateRange.end}
+            onChange={handleDateChange}
+            className="text-sm border-none focus:ring-0 text-gray-600 bg-transparent"
+          />
+        </div>
+      </div>
+
+      {loading && !summary ? (
+        <div className="flex justify-center items-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+        </div>
+      ) : summary ? (
+        <>
+          {/* Stat Cards — click to navigate */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <StatCard
+              title="Total Income"
+              amount={summary.total_income}
+              icon={TrendingUp}
+              colorClass="bg-green-100 text-green-600"
+              onClick={() => navigate('/admin/jobs')}
+            />
+            <StatCard
+              title="Total Expenses"
+              amount={summary.total_expenses}
+              icon={TrendingDown}
+              colorClass="bg-red-100 text-red-600"
+              onClick={() => navigate('/admin/expenses')}
+            />
+            <StatCard
+              title="Net Profit"
+              amount={summary.profit}
+              icon={Wallet}
+              colorClass={summary.profit >= 0 ? 'bg-primary-100 text-primary-600' : 'bg-red-100 text-red-600'}
+              onClick={() => navigate('/admin/jobs')}
+            />
+            <StatCard
+              title="Pending Payments"
+              amount={summary.total_pending}
+              icon={DollarSign}
+              colorClass="bg-amber-100 text-amber-600"
+              onClick={() => navigate('/admin/jobs')}
+            />
+          </div>
+
+          {/* Quick Actions */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <ActionCard
+                title="Jobs"
+                description="View all work entries"
+                icon={ClipboardList}
+                colorClass="text-green-600"
+                bgClass="bg-green-100"
+                onClick={() => navigate('/admin/jobs')}
+              />
+              <ActionCard
+                title="Expenses"
+                description="Track your spending"
+                icon={Receipt}
+                colorClass="text-red-500"
+                bgClass="bg-red-100"
+                onClick={() => navigate('/admin/expenses')}
+              />
+              <ActionCard
+                title="Rates"
+                description="Manage harvester rates"
+                icon={Gauge}
+                colorClass="text-blue-600"
+                bgClass="bg-blue-100"
+                onClick={() => navigate('/admin/rates')}
+              />
+              <ActionCard
+                title="Settings"
+                description="App configuration"
+                icon={Settings}
+                colorClass="text-purple-600"
+                bgClass="bg-purple-100"
+                onClick={() => navigate('/admin/settings')}
+              />
+	      <ActionCard
+	        title="Users"
+	        description="Manage user accounts"
+	        icon={Users}
+	        colorClass="text-indigo-600"
+	        bgClass="bg-indigo-100"
+	        onClick={() => navigate('/admin/users')}
+	      />  
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-10 text-gray-500">Failed to load data.</div>
+      )}
+    </div>
+  );
+};
+
+export default Dashboard;

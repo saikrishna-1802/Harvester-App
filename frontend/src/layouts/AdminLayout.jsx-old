@@ -1,0 +1,105 @@
+import React, { useState } from "react";
+import { NavLink, Outlet } from "react-router-dom";
+import { Menu, X, LogOut, LayoutDashboard, IndianRupee, Settings } from "lucide-react";
+
+const menuItems = [
+  { name: "Dashboard", path: "/admin", icon: LayoutDashboard },
+  { name: "Income", path: "/admin/income", icon: IndianRupee },
+  { name: "Expenses", path: "/admin/expenses", icon: IndianRupee },
+  { name: "Rates", path: "/admin/rates", icon: Settings },
+  { name: "Jobs", path: "/admin/jobs", icon: LayoutDashboard },
+];
+
+const AdminLayout = () => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  return (
+    <div className="flex min-h-screen bg-gradient-to-br from-green-100 to-yellow-50">
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-white shadow-lg transform ${
+          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        } transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static`}
+      >
+        <div className="flex flex-col h-full p-4">
+
+          {/* Title */}
+          <h2 className="text-2xl font-bold text-green-700 mb-6">
+            Harvester Admin
+          </h2>
+
+          {/* Menu */}
+          <nav className="flex-1 space-y-2">
+            {menuItems.map((item, index) => {
+              const Icon = item.icon;
+
+              return (
+                <NavLink key={index} to={item.path}>
+                  {({ isActive }) => (
+                    <div
+                      className={`flex items-center px-4 py-2 rounded-lg transition ${
+                        isActive
+                          ? "bg-green-600 text-white"
+                          : "text-gray-700 hover:bg-green-100"
+                      }`}
+                    >
+                      <Icon
+                        className={`w-5 h-5 mr-3 ${
+                          isActive ? "text-white" : "text-green-600"
+                        }`}
+                      />
+                      {item.name}
+                    </div>
+                  )}
+                </NavLink>
+              );
+            })}
+          </nav>
+
+          {/* Logout */}
+          <button
+            onClick={() => {
+              localStorage.removeItem("token");
+              window.location.href = "/login";
+            }}
+            className="flex items-center justify-center w-full px-4 py-2.5 mt-4 text-sm font-bold text-white bg-red-500 hover:bg-red-600 rounded-lg"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex flex-col flex-1">
+
+        {/* Mobile Header */}
+        <header className="flex items-center h-16 px-4 bg-white shadow lg:hidden">
+          <button
+            className="p-2 mr-4 bg-gray-100 rounded"
+            onClick={() => setIsMobileMenuOpen(true)}
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          <span className="text-xl font-bold">Admin Dashboard</span>
+        </header>
+
+        {/* Page Content */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+          <Outlet />
+        </main>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+export default AdminLayout;

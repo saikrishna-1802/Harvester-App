@@ -1,0 +1,354 @@
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { format } from "date-fns";
+import { Loader2, Edit, Trash2, DownloadCloud, X, Search, Filter } from "lucide-react";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import logo from "/home/harvester/Harvester-App/frontend/src/assets/logo.png";
+
+const Jobs = () => {
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingJob, setEditingJob] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const token = localStorage.getItem("token");
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const fetchJobs = async () => {
+    try {
+      const { data } = await axios.get("/api/jobs", { headers });
+      setJobs(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchJobs(); }, []);
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this job?")) return;
+    await axios.delete(`/api/jobs/${id}`, { headers });
+    fetchJobs();
+  };
+
+  // Auto-recalculate pending when amount_paid changes
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setEditingJob((prev) => {
+      const updated = { ...prev, [name]: value };
+      if (name === "amount_paid") {
+        updated.pending_amount = (
+          parseFloat(updated.total_amount || 0) - parseFloat(value || 0)
+        ).toFixed(2);
+      }
+      return updated;
+    });
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await axios.put(`/api/jobs/${editingJob.id}`, editingJob, { headers });
+      setEditingJob(null);
+      fetchJobs();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const downloadReceipt = (job) => {
+    const doc = new jsPDF();
+    doc.addImage(logo, "PNG", 10, 8, 20, 20);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Sri Lakshmi Chennakeshava Harvesters", 105, 15, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text("Mobile: 9XXXXXXXXX", 160, 10);
+    doc.setFontSize(11);
+    doc.text("Work Receipt / Cash Memo", 105, 22, { align: "center" });
+    doc.line(10, 26, 200, 26);
+    doc.setFontSize(10);
+    doc.text(`Bill No: ${job.id}`, 10, 35);
+    doc.text(`Date: ${new Date(job.date).toLocaleDateString()}`, 150, 35);
+    doc.text(`Farmer Name: ${job.farmer_name}`, 10, 45);
+    doc.text(`Location: ${job.location}`, 10, 52);
+    doc.text(`Driver: ${job.driver_name}`, 10, 59);
+    doc.text(`Harvester: ${job.harvester_id}`, 150, 45);
+    doc.text(`Mode: ${job.mode}`, 150, 52);
+    doc.text(`Time: ${job.start_time?.slice(0, 5)} - ${job.end_time?.slice(0, 5)}`, 150, 59);
+    const startY = 70;
+    doc.setFont("helvetica", "bold");
+    doc.rect(10, startY, 190, 10);
+    doc.text("S.No", 12, startY + 7);
+    doc.text("Particulars", 30, startY + 7);
+    doc.text("Qty", 110, startY + 7);
+    doc.text("Rate", 140, startY + 7);
+    doc.text("Amount", 170, startY + 7);
+    let y = startY + 15;
+    doc.setFont("helvetica", "normal");
+    doc.text("1", 12, y);
+    doc.text("Harvest Work", 30, y);
+    doc.text(`${job.total_hours} hrs`, 110, y);
+    doc.text(`Rs.${job.hourly_rate}`, 140, y);
+    doc.text(`Rs.${job.work_amount}`, 170, y);
+    y += 10;
+    if (job.tractor_trips > 0) {
+      doc.text("2", 12, y);
+      doc.text("Tractor Trips", 30, y);
+      doc.text(`${job.tractor_trips}`, 110, y);
+      doc.text(`Rs.${job.tractor_trip_rate}`, 140, y);
+      doc.text(`Rs.${job.tractor_total}`, 170, y);
+      y += 10;
+    }
+    doc.line(10, y + 2, 200, y + 2);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Total: Rs.${job.total_amount}`, 140, y + 12);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Paid: Rs.${job.amount_paid}`, 140, y + 20);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Pending: Rs.${job.pending_amount}`, 140, y + 28);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(12);
+    doc.text("Thank you for choosing Sri Lakshmi Chennakeshava Harvesters!", 105, 280, { align: "center" });
+    doc.save(`Receipt_${job.farmer_name}.pdf`);
+  };
+
+  const filtered = jobs.filter(j =>
+    j.farmer_name?.toLowerCase().includes(search.toLowerCase()) ||
+    j.location?.toLowerCase().includes(search.toLowerCase()) ||
+    j.driver_name?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl font-bold text-gray-900">Jobs</h1>
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search farmer, village, driver..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 w-64 bg-white"
+          />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center items-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left">Date</th>
+                  <th className="px-4 py-3 text-left">Farmer</th>
+                  <th className="px-4 py-3 text-left">Village</th>
+                  <th className="px-4 py-3 text-left">Driver</th>
+                  <th className="px-4 py-3 text-left">Harvester</th>
+                  <th className="px-4 py-3 text-left">Hours</th>
+                  <th className="px-4 py-3 text-right">Total</th>
+                  <th className="px-4 py-3 text-right">Paid</th>
+                  <th className="px-4 py-3 text-right">Pending</th>
+                  <th className="px-4 py-3 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtered.length === 0 ? (
+                  <tr><td colSpan="10" className="px-4 py-10 text-center text-gray-400">No jobs found.</td></tr>
+                ) : (
+                  filtered.map((job) => (
+                    <tr key={job.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap text-gray-600">
+                        {format(new Date(job.date), "dd MMM yyyy")}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{job.farmer_name}</td>
+                      <td className="px-4 py-3 text-gray-600">{job.location || "—"}</td>
+                      <td className="px-4 py-3 text-gray-600">{job.driver_name || "—"}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
+                          {job.harvester_id}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{job.total_hours}h</td>
+                      <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                        ₹{parseFloat(job.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-3 text-right text-green-600 font-medium">
+                        ₹{parseFloat(job.amount_paid).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`font-semibold ${parseFloat(job.pending_amount) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          ₹{parseFloat(job.pending_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => downloadReceipt(job)}
+                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Download Receipt"
+                          >
+                            <DownloadCloud className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setEditingJob({ ...job })}
+                            className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                            title="Edit Job"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(job.id)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete Job"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer count */}
+          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 text-xs text-gray-500">
+            Showing {filtered.length} of {jobs.length} jobs
+          </div>
+        </div>
+      )}
+
+      {/* EDIT MODAL */}
+      {editingJob && (
+        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">Edit Job</h2>
+              <button
+                onClick={() => setEditingJob(null)}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
+              {/* Farmer Name */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Farmer Name</label>
+                <input
+                  name="farmer_name"
+                  value={editingJob.farmer_name}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
+                />
+              </div>
+
+              {/* Total Amount — read only */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Total Bill</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-gray-500 text-sm">₹</span>
+                  <input
+                    name="total_amount"
+                    type="number"
+                    value={editingJob.total_amount}
+                    onChange={handleChange}
+                    className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none text-sm bg-gray-50"
+                    readOnly
+                  />
+                </div>
+              </div>
+
+              {/* Amount Paid */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Amount Paid</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-gray-500 text-sm">₹</span>
+                  <input
+                    name="amount_paid"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={editingJob.amount_paid}
+                    onChange={handleChange}
+                    className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Pending — auto calculated */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Pending Balance</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-gray-500 text-sm">₹</span>
+                  <input
+                    name="pending_amount"
+                    type="number"
+                    value={editingJob.pending_amount}
+                    readOnly
+                    className={`w-full pl-7 pr-3 py-2.5 border rounded-lg text-sm font-bold bg-gray-50 outline-none ${
+                      parseFloat(editingJob.pending_amount) > 0
+                        ? 'border-red-200 text-red-600'
+                        : 'border-green-200 text-green-600'
+                    }`}
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Auto-calculated from Total − Paid</p>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">Notes</label>
+                <textarea
+                  name="notes"
+                  rows="2"
+                  value={editingJob.notes || ''}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 outline-none text-sm resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingJob(null)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition font-semibold text-sm flex justify-center items-center gap-2 disabled:opacity-70"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  {saving ? "Saving..." : "Update Job"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Jobs;
